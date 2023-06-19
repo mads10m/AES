@@ -27,30 +27,167 @@ pub fn create_key(key: Vec<u8>) -> Key {
     };
 }
 
-//pub fn expand_key(key: &Vec<u8>) -> Vec<u8> {
-//let mut expanded_key = key;
-//let mut rcon = 1;
-//let mut temp = vec![0; 4];
-//let mut i = 0;
-//while expanded_key.len() < 176 {
-//    for j in 0..4 {
-//        temp[j] = expanded_key[j + i - 4];
-//    }
-//    if i % 16 == 0 {
-//        temp = sub_word(rot_word(temp));
-//        temp[0] ^= rcon;
-//        rcon = rcon << 1;
-//    }
-//    if key_type == KeyType::AES256 && i % 16 == 16 {
-//        temp = sub_word(temp);
-//    }
-//    for j in 0..4 {
-//        expanded_key[i] = expanded_key[i - 16] ^ temp[j];
-//        i += 1;
-//    }
-//}
-//expanded_key
-//}
+pub fn expand_key(key: Key) {
+    let nb = 4;
+    let nk = match key.key_type {
+        KeyType::AES128 => 4,
+        KeyType::AES192 => 6,
+        KeyType::AES256 => 8,
+    };
+    let nr = match key.key_type {
+        KeyType::AES128 => 10,
+        KeyType::AES192 => 12,
+        KeyType::AES256 => 14,
+    };
+
+    let mut w: Vec<u32> = vec![0; nb * (nr + 1)];
+
+    for i in 0..nk {
+        w[i] = (key.key[4 * i] as u32) << 24
+            | (key.key[4 * i + 1] as u32) << 16
+            | (key.key[4 * i + 2] as u32) << 8
+            | (key.key[4 * i + 3] as u32);
+    }
+
+    //for i in nk..nb * (nr + 1) {
+    //    let mut temp = w[i - 1];
+
+    //    if i % nk == 0 {
+    //        // NOTE: the sign "^" is the bitwise XOR operator
+    //        temp = sub_word(rot_word(temp)) ^ rcon(i / nk);
+    //    } else if nk > 6 && i % nk == 4 {
+    //        temp = sub_word(temp);
+    //    }
+
+    //    w[i] = w[i - nk] ^ temp;
+    //}
+}
+
+fn sbox(byte: u8) -> u8 {
+    // TODO: calculate sbox
+    #[rustfmt::skip]
+    let sbox: [[u8; 16]; 16] = [
+        [0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76],
+        [0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0],
+        [0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15],
+        [0x04, 0xc7, 0x23, 0xc3, 0x18, 0x96, 0x05, 0x9a, 0x07, 0x12, 0x80, 0xe2, 0xeb, 0x27, 0xb2, 0x75],
+        [0x09, 0x83, 0x2c, 0x1a, 0x1b, 0x6e, 0x5a, 0xa0, 0x52, 0x3b, 0xd6, 0xb3, 0x29, 0xe3, 0x2f, 0x84],
+        [0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b, 0x6a, 0xcb, 0xbe, 0x39, 0x4a, 0x4c, 0x58, 0xcf],
+        [0xd0, 0xef, 0xaa, 0xfb, 0x43, 0x4d, 0x33, 0x85, 0x45, 0xf9, 0x02, 0x7f, 0x50, 0x3c, 0x9f, 0xa8],
+        [0x51, 0xa3, 0x40, 0x8f, 0x92, 0x9d, 0x38, 0xf5, 0xbc, 0xb6, 0xda, 0x21, 0x10, 0xff, 0xf3, 0xd2],
+        [0xcd, 0x0c, 0x13, 0xec, 0x5f, 0x97, 0x44, 0x17, 0xc4, 0xa7, 0x7e, 0x3d, 0x64, 0x5d, 0x19, 0x73],
+        [0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88, 0x46, 0xee, 0xb8, 0x14, 0xde, 0x5e, 0x0b, 0xdb],
+        [0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c, 0xc2, 0xd3, 0xac, 0x62, 0x91, 0x95, 0xe4, 0x79],
+        [0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd5, 0x4e, 0xa9, 0x6c, 0x56, 0xf4, 0xea, 0x65, 0x7a, 0xae, 0x08],
+        [0xba, 0x78, 0x25, 0x2e, 0x1c, 0xa6, 0xb4, 0xc6, 0xe8, 0xdd, 0x74, 0x1f, 0x4b, 0xbd, 0x8b, 0x8a],
+        [0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e],
+        [0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf],
+        [0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16]
+    ];
+
+    let x = (byte >> 4) as usize;
+    let y = (byte & 0x0f) as usize;
+
+    return sbox[x][y];
+}
+
+fn sub_bytes(state: Vec<u8>) -> Vec<u8> {
+    let mut result = vec![0; state.len()];
+
+    for i in 0..state.len() {
+        result[i] = sbox(state[i]);
+    }
+
+    return result;
+}
+
+fn sub_word(word: u32) -> u32 {
+    let mut result: u32 = 0;
+
+    // TODO: this can be made into an for loop
+
+    let a0 = sbox(((word & 0xff000000) >> 24) as u8);
+    let a1 = sbox(((word & 0x00ff0000) >> 16) as u8);
+    let a2 = sbox(((word & 0x0000ff00) >> 8) as u8);
+    let a3 = sbox((word & 0x000000ff) as u8);
+
+    result |= ((a0 as u32) << 24) | ((a1 as u32) << 16) | ((a2 as u32) << 8) as u32 | a3 as u32;
+
+    return result;
+}
+
+fn rot_word(word: u32) -> u32 {
+    return (word >> 24) | (word << 8);
+}
+
+fn rcon(i: usize) -> u32 {
+    // TODO: calculate rcon
+    let rcon: [u8; 31] = [
+        0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36, 0x6c, 0xd8, 0xab, 0x4d,
+        0x9a, 0x2f, 0x5e, 0xbc, 0x63, 0xc6, 0x97, 0x35, 0x6a, 0xd4, 0xb3, 0x7d, 0xfa, 0xef, 0xc5,
+        0x91,
+    ];
+
+    return rcon[i] as u32;
+}
+
+fn key_expansion(key: Key) -> Vec<u32> {
+    let nb = 4;
+    let nk = match key.key_type {
+        KeyType::AES128 => 4,
+        KeyType::AES192 => 6,
+        KeyType::AES256 => 8,
+    };
+    let nr = match key.key_type {
+        KeyType::AES128 => 10,
+        KeyType::AES192 => 12,
+        KeyType::AES256 => 14,
+    };
+
+    let mut w = vec![0; nb * (nr + 1)];
+
+    for i in 0..nk {
+        w[i] = (key.key[4 * i] as u32) << 24
+            | (key.key[4 * i + 1] as u32) << 16
+            | (key.key[4 * i + 2] as u32) << 8
+            | (key.key[4 * i + 3] as u32);
+    }
+
+    for i in nk..nb * (nr + 1) {
+        let mut temp = w[i - 1];
+
+        if i % nk == 0 {
+            temp = sub_word(rot_word(temp)) ^ (rcon(i / nk));
+        } else if (nk > 6) && (i % nk == 4) {
+            temp = sub_word(temp);
+        }
+
+        w[i] = w[i - nk] ^ temp;
+    }
+
+    return w;
+
+    //let mut w: Vec<u32> = vec![0; 44];
+
+    //for i in 0..4 {
+    //    w[i] = (key[4 * i] as u32) << 24
+    //        | (key[4 * i + 1] as u32) << 16
+    //        | (key[4 * i + 2] as u32) << 8
+    //        | (key[4 * i + 3] as u32);
+    //}
+
+    //for i in 4..44 {
+    //    let temp = w[i - 1];
+
+    //    if i % 4 == 0 {
+    //        w[i] = sub_word(rot_word(temp)) ^ (recon(i / 4) as u32);
+    //    } else {
+    //        w[i] = temp ^ w[i - 4];
+    //    }
+    //}
+
+    //return w;
+}
 
 mod tests {
     use super::*;
@@ -87,6 +224,50 @@ mod tests {
     fn test_create_key_invalid_length() {
         let key: Vec<u8> = vec![0x2b, 0x7e, 0x15];
         let _key = create_key(key);
+    }
+
+    #[test]
+    fn test_sbox() {
+        assert_eq!(sbox(0x53), 0xed);
+        assert_eq!(sbox(0xff), 0x16);
+        assert_eq!(sbox(0xf0), 0x8c);
+        assert_eq!(sbox(0x0f), 0x76);
+        assert_eq!(sbox(0x00), 0x63);
+    }
+
+    #[test]
+    fn test_sub_word() {
+        assert_eq!(sub_word(0x5355fcb0), 0xedfcb0e7);
+        assert_eq!(sub_word(0x00000000), 0x63636363);
+        assert_eq!(sub_word(0xffffffff), 0x16161616);
+    }
+
+    #[test]
+    fn test_key_expansion() {
+        let key128: Vec<u8> = vec![
+            0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf,
+            0x4f, 0x3c,
+        ];
+
+        let key192: Vec<u8> = vec![
+            0x8e, 0x73, 0xb0, 0xf7, 0xda, 0x0e, 0x64, 0x52, 0xc8, 0x10, 0xf3, 0x2b, 0x80, 0x90,
+            0x79, 0xe5, 0x62, 0xf8, 0xea, 0xd2, 0x52, 0x2c, 0x6b, 0x7b,
+        ];
+
+        let key256: Vec<u8> = vec![
+            0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d,
+            0x77, 0x81, 0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3,
+            0x09, 0x14, 0xdf, 0xf4,
+        ];
+
+        let key128 = create_key(key128);
+        let key192 = create_key(key192);
+        let key256 = create_key(key256);
+
+        let key128_expanded = key_expansion(key128);
+        println!("{:x?}", key128_expanded);
+
+        assert!(false);
     }
 
     //#[test]
