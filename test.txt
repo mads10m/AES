@@ -1,0 +1,13 @@
+key: a
+
+openssl aes-128-ecb -in text.txt -out openssl.txt -p -nosalt -nopad
+
+
+hexdump -C openssl.txt
+
+
+----
+
+openssl aes-128-ecb -d -in openssl.txt -out dec.txt -p -nosalt -nopad
+
+hexdump -C dec.txt

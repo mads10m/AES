@@ -1,4 +1,4 @@
-use std::vec;
+use std::{fs, vec};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum KeyType {
@@ -13,22 +13,23 @@ pub struct Key {
     key_type: KeyType,
 }
 
-pub fn create_key(key: Vec<u8>) -> Key {
-    let key_type = match key.len() {
-        16 => KeyType::AES128,
-        24 => KeyType::AES192,
-        32 => KeyType::AES256,
-        _ => panic!("Invalid key length"),
-    };
+impl Key {
+    pub fn new(vec: Vec<u8>) -> Key {
+        let key_type = match vec.len() {
+            16 => KeyType::AES128,
+            24 => KeyType::AES192,
+            32 => KeyType::AES256,
+            _ => panic!("Invalid key length"),
+        };
 
-    return Key {
-        key: key,
-        key_type: key_type,
-    };
+        return Key {
+            key: vec,
+            key_type: key_type,
+        };
+    }
 }
 
 fn sbox(byte: u8) -> u8 {
-    // TODO: calculate sbox
     #[rustfmt::skip]
     let sbox: [[u8; 16]; 16] = [
         [0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76],
@@ -82,13 +83,18 @@ fn inv_sbox(byte: u8) -> u8 {
     return inv_sbox[x][y];
 }
 
-pub fn cipher(input: Vec<u8>, key: Key) -> Vec<u8> {
-    // check input length
-    // Todo: this check can be moved to the caller
-    //if input.len() != 16 {
-    //    return Err("input length must be 16 bytes");
-    //}
+pub fn encrypt_text(text: String, key: String) -> String {
+    let text = text.as_bytes().to_vec();
+    let key = key.as_bytes().to_vec();
 
+    let key = Key::new(key);
+
+    let encrypted = cipher(text, key);
+
+    return String::from_utf8(encrypted).unwrap();
+}
+
+pub fn cipher(input: Vec<u8>, key: Key) -> Vec<u8> {
     let nb = 4;
     let nr = match key.key_type {
         KeyType::AES128 => 10,
@@ -96,7 +102,6 @@ pub fn cipher(input: Vec<u8>, key: Key) -> Vec<u8> {
         KeyType::AES256 => 14,
     };
 
-    // TODO: this can be made more efficient by just using the input
     let mut state = input.clone();
 
     let w = key_expansion(key);
@@ -117,7 +122,7 @@ pub fn cipher(input: Vec<u8>, key: Key) -> Vec<u8> {
     return state;
 }
 
-fn inv_cipher(input: Vec<u8>, key: Key) -> Vec<u8> {
+pub fn inv_cipher(input: Vec<u8>, key: Key) -> Vec<u8> {
     let nb = 4;
     let nr = match key.key_type {
         KeyType::AES128 => 10,
@@ -148,7 +153,6 @@ fn inv_cipher(input: Vec<u8>, key: Key) -> Vec<u8> {
 fn add_round_key(state: Vec<u8>, w: Vec<u32>) -> Vec<u8> {
     let nb = 4;
 
-    // TODO: this can be made more efficient by just using the input
     let mut result = vec![0; 4 * nb];
 
     let mut key_schedule_index = 0;
@@ -197,7 +201,7 @@ fn shift_rows(state: Vec<u8>) -> Vec<u8> {
 
     return result;
 
-    // TODO: test if this is faster than an array lookup
+    // Calculate the lookup table
     //for i in 0..(4 * nb) {
     //    let index = i % 4;
     //    result[(i + ((4 - index) * 4)) % 16] = state[i];
@@ -219,7 +223,7 @@ fn inv_shift_rows(state: Vec<u8>) -> Vec<u8> {
 
     return result;
 
-    // TODO: test if this is faster than an array lookup
+    // Calculate the lookup table
     //for i in 0..(4 * nb) {
     //    let index = i % 4;
     //    result[(i + ((index) * 4)) % 16] = state[i];
@@ -280,7 +284,6 @@ fn inv_mix_columns(state: Vec<u8>) -> Vec<u8> {
     return result;
 }
 
-// TODO: look more into this
 fn finite_field_mul(mut a: u8, mut b: u8) -> u8 {
     let mut p: u8 = 0;
 
@@ -308,8 +311,6 @@ fn finite_field_mul(mut a: u8, mut b: u8) -> u8 {
 fn sub_word(word: u32) -> u32 {
     let mut result: u32 = 0;
 
-    // TODO: this can be made into an for loop
-
     let a0 = sbox(((word & 0xff000000) >> 24) as u8);
     let a1 = sbox(((word & 0x00ff0000) >> 16) as u8);
     let a2 = sbox(((word & 0x0000ff00) >> 8) as u8);
@@ -325,7 +326,6 @@ fn rot_word(word: u32) -> u32 {
 }
 
 fn rcon(i: usize) -> u32 {
-    // TODO: calculate rcon
     let rcon: [u32; 31] = [
         0x00000000, 0x01000000, 0x02000000, 0x04000000, 0x08000000, 0x10000000, 0x20000000,
         0x40000000, 0x80000000, 0x1b000000, 0x36000000, 0x6c000000, 0xd8000000, 0xab000000,
@@ -337,7 +337,7 @@ fn rcon(i: usize) -> u32 {
     return rcon[i];
 }
 
-pub fn key_expansion(key: Key) -> Vec<u32> {
+fn key_expansion(key: Key) -> Vec<u32> {
     let nb = 4;
     let nk = match key.key_type {
         KeyType::AES128 => 4,
@@ -396,9 +396,9 @@ mod tests {
             0x09, 0x14, 0xdf, 0xf4,
         ];
 
-        let key128 = create_key(key128);
-        let key192 = create_key(key192);
-        let key256 = create_key(key256);
+        let key128 = Key::new(key128);
+        let key192 = Key::new(key192);
+        let key256 = Key::new(key256);
 
         assert_eq!(key128.key_type, KeyType::AES128);
         assert_eq!(key128.key.len(), 16);
@@ -414,7 +414,7 @@ mod tests {
     #[should_panic]
     fn test_create_key_invalid_length() {
         let key: Vec<u8> = vec![0x2b, 0x7e, 0x15];
-        let _key = create_key(key);
+        let key = Key::new(key);
     }
 
     #[test]
@@ -442,45 +442,19 @@ mod tests {
         assert_eq!(sub_word(0xffffffff), 0x16161616);
     }
 
-    // TODO
-    //#[test]
-    //fn test_key_expansion() {
-    //    let key128: Vec<u8> = vec![
-    //        0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf,
-    //        0x4f, 0x3c,
-    //    ];
-
-    //    let key192: Vec<u8> = vec![
-    //        0x8e, 0x73, 0xb0, 0xf7, 0xda, 0x0e, 0x64, 0x52, 0xc8, 0x10, 0xf3, 0x2b, 0x80, 0x90,
-    //        0x79, 0xe5, 0x62, 0xf8, 0xea, 0xd2, 0x52, 0x2c, 0x6b, 0x7b,
-    //    ];
-
-    //    let key256: Vec<u8> = vec![
-    //        0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d,
-    //        0x77, 0x81, 0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3,
-    //        0x09, 0x14, 0xdf, 0xf4,
-    //    ];
-
-    //    let key128 = create_key(key128);
-    //    let key192 = create_key(key192);
-    //    let key256 = create_key(key256);
-
-    //    let key128_expanded = key_expansion(key128);
-    //}
-
     #[test]
     fn test_cipher_encrypt() {
-        let key128 = create_key(vec![
+        let key128 = Key::new(vec![
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
             0x0e, 0x0f,
         ]);
 
-        let key192 = create_key(vec![
+        let key192 = Key::new(vec![
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
             0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
         ]);
 
-        let key256 = create_key(vec![
+        let key256 = Key::new(vec![
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
             0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b,
             0x1c, 0x1d, 0x1e, 0x1f,
@@ -513,17 +487,17 @@ mod tests {
 
     #[test]
     fn test_cipher_decrypt() {
-        let key128 = create_key(vec![
+        let key128 = Key::new(vec![
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
             0x0e, 0x0f,
         ]);
 
-        let key192 = create_key(vec![
+        let key192 = Key::new(vec![
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
             0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
         ]);
 
-        let key256 = create_key(vec![
+        let key256 = Key::new(vec![
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
             0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b,
             0x1c, 0x1d, 0x1e, 0x1f,
@@ -555,17 +529,17 @@ mod tests {
 
     #[test]
     fn test_cipher() {
-        let key128 = create_key(vec![
+        let key128 = Key::new(vec![
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
             0x0e, 0x0f,
         ]);
 
-        let key192 = create_key(vec![
+        let key192 = Key::new(vec![
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
             0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
         ]);
 
-        let key256 = create_key(vec![
+        let key256 = Key::new(vec![
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
             0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b,
             0x1c, 0x1d, 0x1e, 0x1f,
