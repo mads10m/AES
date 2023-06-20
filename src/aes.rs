@@ -1,13 +1,13 @@
 use std::vec;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum KeyType {
     AES128,
     AES192,
     AES256,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Key {
     key: Vec<u8>,
     key_type: KeyType,
@@ -55,6 +55,60 @@ fn sbox(byte: u8) -> u8 {
     return sbox[x][y];
 }
 
+pub fn cipher(input: Vec<u8>, key: Key) -> Vec<u8> {
+    // check input length
+    // Todo: this check can be moved to the caller
+    //if input.len() != 16 {
+    //    return Err("input length must be 16 bytes");
+    //}
+
+    let nb = 4;
+    let nr = match key.key_type {
+        KeyType::AES128 => 10,
+        KeyType::AES192 => 12,
+        KeyType::AES256 => 14,
+    };
+
+    // TODO: this can be made more efficient by just using the input
+    let mut state = input.clone();
+
+    let w = key_expansion(key);
+
+    state = add_round_key(state, w[0..nb].to_vec());
+
+    for round in 1..nr {
+        state = sub_bytes(state);
+        state = shift_rows(state);
+        state = mix_columns(state);
+        state = add_round_key(state, w[(round * nb)..((round + 1) * nb)].to_vec());
+    }
+
+    state = sub_bytes(state);
+    state = shift_rows(state);
+    state = add_round_key(state, w[nr * nb..((nr + 1) * nb)].to_vec());
+
+    return state;
+}
+
+fn add_round_key(state: Vec<u8>, w: Vec<u32>) -> Vec<u8> {
+    let nb = 4;
+
+    // TODO: this can be made more efficient by just using the input
+    let mut result = vec![0; 4 * nb];
+
+    let mut key_schedule_index = 0;
+    for i in 0..4 * nb {
+        key_schedule_index = match i {
+            4 | 8 | 12 => key_schedule_index + 1,
+            _ => key_schedule_index,
+        };
+        // NOTE: you don't need to and with 0xff because the cast to u8 will do that
+        result[i] = state[i] ^ (w[key_schedule_index] >> (24 - (i % 4) * 8)) as u8;
+    }
+
+    return result;
+}
+
 fn sub_bytes(state: Vec<u8>) -> Vec<u8> {
     let mut result = vec![0; state.len()];
 
@@ -63,6 +117,79 @@ fn sub_bytes(state: Vec<u8>) -> Vec<u8> {
     }
 
     return result;
+
+    // Faster way
+    //for i in 0..state.len() {
+    //    state[i] = sbox(state[i]);
+    //}
+    //return state;
+}
+
+fn shift_rows(state: Vec<u8>) -> Vec<u8> {
+    let nb = 4;
+
+    let mut result = vec![0; 4 * nb];
+
+    let look_up_position: [usize; 16] = [0, 13, 10, 7, 4, 1, 14, 11, 8, 5, 2, 15, 12, 9, 6, 3];
+
+    for i in 0..(4 * nb) {
+        result[look_up_position[i]] = state[i];
+    }
+
+    return result;
+
+    // TODO: test if this is faster than an array lookup
+    //for i in 0..(4 * nb) {
+    //    let index = i % 4;
+    //    result[(i + ((4 - index) * 4)) % 16] = state[i];
+    //}
+    //
+    //return result;
+}
+
+fn mix_columns(state: Vec<u8>) -> Vec<u8> {
+    let nb = 4;
+
+    let mut result = vec![0; 4 * nb];
+
+    for i in 0..nb {
+        let s0 = state[i * 4];
+        let s1 = state[i * 4 + 1];
+        let s2 = state[i * 4 + 2];
+        let s3 = state[i * 4 + 3];
+
+        result[i * 4] = finite_field_mul(0x02, s0) ^ finite_field_mul(0x03, s1) ^ s2 ^ s3;
+        result[i * 4 + 1] = s0 ^ finite_field_mul(0x02, s1) ^ finite_field_mul(0x03, s2) ^ s3;
+        result[i * 4 + 2] = s0 ^ s1 ^ finite_field_mul(0x02, s2) ^ finite_field_mul(0x03, s3);
+        result[i * 4 + 3] = finite_field_mul(0x03, s0) ^ s1 ^ s2 ^ finite_field_mul(0x02, s3);
+    }
+
+    return result;
+}
+
+// TODO: look more into this
+fn finite_field_mul(mut a: u8, mut b: u8) -> u8 {
+    let mut p: u8 = 0;
+
+    let mut counter = 0;
+    let mut hi_bit_set;
+
+    while counter < 8 {
+        if (b & 1) == 1 {
+            p ^= a;
+        }
+
+        hi_bit_set = (a & 0x80) as u8;
+        a <<= 1;
+        if hi_bit_set == 0x80 {
+            a ^= 0x1b;
+        }
+
+        b >>= 1;
+        counter += 1;
+    }
+
+    return p;
 }
 
 fn sub_word(word: u32) -> u32 {
@@ -134,6 +261,7 @@ pub fn key_expansion(key: Key) -> Vec<u32> {
     return w;
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -192,48 +320,87 @@ mod tests {
         assert_eq!(sub_word(0xffffffff), 0x16161616);
     }
 
-    #[test]
-    fn test_key_expansion() {
-        let key128: Vec<u8> = vec![
-            0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf,
-            0x4f, 0x3c,
-        ];
-
-        let key192: Vec<u8> = vec![
-            0x8e, 0x73, 0xb0, 0xf7, 0xda, 0x0e, 0x64, 0x52, 0xc8, 0x10, 0xf3, 0x2b, 0x80, 0x90,
-            0x79, 0xe5, 0x62, 0xf8, 0xea, 0xd2, 0x52, 0x2c, 0x6b, 0x7b,
-        ];
-
-        let key256: Vec<u8> = vec![
-            0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d,
-            0x77, 0x81, 0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3,
-            0x09, 0x14, 0xdf, 0xf4,
-        ];
-
-        let key128 = create_key(key128);
-        let key192 = create_key(key192);
-        let key256 = create_key(key256);
-
-        let key128_expanded = key_expansion(key128);
-        println!("{:x?}", key128_expanded);
-
-        assert!(false);
-    }
-
+    // TODO
     //#[test]
-    //fn test_expand_key() {
-    //    let key = vec![
+    //fn test_key_expansion() {
+    //    let key128: Vec<u8> = vec![
     //        0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf,
     //        0x4f, 0x3c,
     //    ];
-    //    let expanded_key = vec![
-    //        0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf,
-    //        0x4f, 0x3c, 0xa0, 0xfa, 0xfe, 0x17, 0x88, 0x54, 0x2c, 0xb1, 0x23, 0xa3, 0x39, 0x39,
-    //        0x2a, 0x6c, 0x76, 0x05, 0xf2, 0xc2, 0x95, 0xf2, 0x7a, 0x96, 0xb9, 0x43, 0x59, 0x35,
-    //        0x80, 0x7a, 0x73, 0x59, 0xf6, 0x7f, 0x3d, 0x80, 0x47, 0x7d, 0x47, 0x16, 0xfe, 0x3e,
-    //        0x1e, 0x23, 0x7e, 0x44, 0x6d, 0x7a, 0x88, 0x3b, 0xef, 0x44, 0xa5, 0x41, 0xa8, 0x52,
-    //        0x5b, 0x7f,
+
+    //    let key192: Vec<u8> = vec![
+    //        0x8e, 0x73, 0xb0, 0xf7, 0xda, 0x0e, 0x64, 0x52, 0xc8, 0x10, 0xf3, 0x2b, 0x80, 0x90,
+    //        0x79, 0xe5, 0x62, 0xf8, 0xea, 0xd2, 0x52, 0x2c, 0x6b, 0x7b,
     //    ];
-    //    assert_eq!(expand_key(&key), expanded_key);
+
+    //    let key256: Vec<u8> = vec![
+    //        0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d,
+    //        0x77, 0x81, 0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3,
+    //        0x09, 0x14, 0xdf, 0xf4,
+    //    ];
+
+    //    let key128 = create_key(key128);
+    //    let key192 = create_key(key192);
+    //    let key256 = create_key(key256);
+
+    //    let key128_expanded = key_expansion(key128);
     //}
+
+    #[test]
+    fn test_cipher_encrypt() {
+        let key128 = create_key(vec![
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+            0x0e, 0x0f,
+        ]);
+
+        let key192 = create_key(vec![
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+            0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        ]);
+
+        let key256 = create_key(vec![
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+            0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b,
+            0x1c, 0x1d, 0x1e, 0x1f,
+        ]);
+
+        let correct_output_128 = vec![
+            0x69, 0xc4, 0xe0, 0xd8, 0x6a, 0x7b, 0x04, 0x30, 0xd8, 0xcd, 0xb7, 0x80, 0x70, 0xb4,
+            0xc5, 0x5a,
+        ];
+
+        let correct_output_192 = vec![
+            0xdd, 0xa9, 0x7c, 0xa4, 0x86, 0x4c, 0xdf, 0xe0, 0x6e, 0xaf, 0x70, 0xa0, 0xec, 0x0d,
+            0x71, 0x91,
+        ];
+
+        let correct_output_256 = vec![
+            0x8e, 0xa2, 0xb7, 0xca, 0x51, 0x67, 0x45, 0xbf, 0xea, 0xfc, 0x49, 0x90, 0x4b, 0x49,
+            0x60, 0x89,
+        ];
+
+        let input = vec![
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd,
+            0xee, 0xff,
+        ];
+
+        assert_eq!(cipher(input.clone(), key128), correct_output_128);
+        assert_eq!(cipher(input.clone(), key192), correct_output_192);
+        assert_eq!(cipher(input, key256), correct_output_256);
+    }
+
+    #[test]
+    fn test_shift_rows() {
+        let state = vec![
+            0x00, 0x10, 0x20, 0x30, 0x01, 0x11, 0x21, 0x31, 0x02, 0x12, 0x22, 0x32, 0x03, 0x13,
+            0x23, 0x33,
+        ];
+
+        let new_state = vec![
+            0x00, 0x11, 0x22, 0x33, 0x01, 0x12, 0x23, 0x30, 0x02, 0x13, 0x20, 0x31, 0x03, 0x10,
+            0x21, 0x32,
+        ];
+
+        assert_eq!(shift_rows(state), new_state);
+    }
 }
