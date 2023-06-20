@@ -27,42 +27,6 @@ pub fn create_key(key: Vec<u8>) -> Key {
     };
 }
 
-pub fn expand_key(key: Key) {
-    let nb = 4;
-    let nk = match key.key_type {
-        KeyType::AES128 => 4,
-        KeyType::AES192 => 6,
-        KeyType::AES256 => 8,
-    };
-    let nr = match key.key_type {
-        KeyType::AES128 => 10,
-        KeyType::AES192 => 12,
-        KeyType::AES256 => 14,
-    };
-
-    let mut w: Vec<u32> = vec![0; nb * (nr + 1)];
-
-    for i in 0..nk {
-        w[i] = (key.key[4 * i] as u32) << 24
-            | (key.key[4 * i + 1] as u32) << 16
-            | (key.key[4 * i + 2] as u32) << 8
-            | (key.key[4 * i + 3] as u32);
-    }
-
-    //for i in nk..nb * (nr + 1) {
-    //    let mut temp = w[i - 1];
-
-    //    if i % nk == 0 {
-    //        // NOTE: the sign "^" is the bitwise XOR operator
-    //        temp = sub_word(rot_word(temp)) ^ rcon(i / nk);
-    //    } else if nk > 6 && i % nk == 4 {
-    //        temp = sub_word(temp);
-    //    }
-
-    //    w[i] = w[i - nk] ^ temp;
-    //}
-}
-
 fn sbox(byte: u8) -> u8 {
     // TODO: calculate sbox
     #[rustfmt::skip]
@@ -122,16 +86,18 @@ fn rot_word(word: u32) -> u32 {
 
 fn rcon(i: usize) -> u32 {
     // TODO: calculate rcon
-    let rcon: [u8; 31] = [
-        0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36, 0x6c, 0xd8, 0xab, 0x4d,
-        0x9a, 0x2f, 0x5e, 0xbc, 0x63, 0xc6, 0x97, 0x35, 0x6a, 0xd4, 0xb3, 0x7d, 0xfa, 0xef, 0xc5,
-        0x91,
+    let rcon: [u32; 31] = [
+        0x00000000, 0x01000000, 0x02000000, 0x04000000, 0x08000000, 0x10000000, 0x20000000,
+        0x40000000, 0x80000000, 0x1b000000, 0x36000000, 0x6c000000, 0xd8000000, 0xab000000,
+        0x4d000000, 0x9a000000, 0x2f000000, 0x5e000000, 0xbc000000, 0x63000000, 0xc6000000,
+        0x97000000, 0x35000000, 0x6a000000, 0xd4000000, 0xb3000000, 0x7d000000, 0xfa000000,
+        0xef000000, 0xc5000000, 0x91000000,
     ];
 
-    return rcon[i] as u32;
+    return rcon[i];
 }
 
-fn key_expansion(key: Key) -> Vec<u32> {
+pub fn key_expansion(key: Key) -> Vec<u32> {
     let nb = 4;
     let nk = match key.key_type {
         KeyType::AES128 => 4,
@@ -162,31 +128,10 @@ fn key_expansion(key: Key) -> Vec<u32> {
             temp = sub_word(temp);
         }
 
-        w[i] = w[i - nk] ^ temp;
+        w[i] = (w[i - nk]) ^ (temp);
     }
 
     return w;
-
-    //let mut w: Vec<u32> = vec![0; 44];
-
-    //for i in 0..4 {
-    //    w[i] = (key[4 * i] as u32) << 24
-    //        | (key[4 * i + 1] as u32) << 16
-    //        | (key[4 * i + 2] as u32) << 8
-    //        | (key[4 * i + 3] as u32);
-    //}
-
-    //for i in 4..44 {
-    //    let temp = w[i - 1];
-
-    //    if i % 4 == 0 {
-    //        w[i] = sub_word(rot_word(temp)) ^ (recon(i / 4) as u32);
-    //    } else {
-    //        w[i] = temp ^ w[i - 4];
-    //    }
-    //}
-
-    //return w;
 }
 
 mod tests {
@@ -215,8 +160,13 @@ mod tests {
         let key256 = create_key(key256);
 
         assert_eq!(key128.key_type, KeyType::AES128);
+        assert_eq!(key128.key.len(), 16);
+
         assert_eq!(key192.key_type, KeyType::AES192);
+        assert_eq!(key192.key.len(), 24);
+
         assert_eq!(key256.key_type, KeyType::AES256);
+        assert_eq!(key256.key.len(), 32);
     }
 
     #[test]
