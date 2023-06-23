@@ -83,17 +83,6 @@ fn inv_sbox(byte: u8) -> u8 {
     return inv_sbox[x][y];
 }
 
-pub fn encrypt_text(text: String, key: String) -> String {
-    let text = text.as_bytes().to_vec();
-    let key = key.as_bytes().to_vec();
-
-    let key = Key::new(key);
-
-    let encrypted = cipher(text, key);
-
-    return String::from_utf8(encrypted).unwrap();
-}
-
 pub fn cipher(input: Vec<u8>, key: Key) -> Vec<u8> {
     let nb = 4;
     let nr = match key.key_type {
